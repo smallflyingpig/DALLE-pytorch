@@ -15,71 +15,52 @@ from torchvision.utils import make_grid, save_image
 
 # dalle classes
 
-from dalle_pytorch import DiscreteVAE
+from dalle_pytorch import DiscreteVAE, cfg_from_file, cfg
 
 # argument parsing
 
 parser = argparse.ArgumentParser()
 
+parser.add_argument("--cfg", type=str, default="../config/DVAE.yaml", help="")
 parser.add_argument('--image_folder', type = str, required = True,
                     help='path to your folder of images for learning the discrete VAE and its codebook')
 
 parser.add_argument('--image_size', type = int, required = False, default = 128,
                     help='image size')
-
 args = parser.parse_args()
 
+cfg_from_file(args.cfg)
 # constants
 
-IMAGE_SIZE = args.image_size
-IMAGE_PATH = args.image_folder
-
-EPOCHS = 20
-BATCH_SIZE = 8
-LEARNING_RATE = 1e-3
-LR_DECAY_RATE = 0.98
-
-NUM_TOKENS = 8192
-NUM_LAYERS = 2
-NUM_RESNET_BLOCKS = 2
-SMOOTH_L1_LOSS = False
-EMB_DIM = 512
-HID_DIM = 256
-KL_LOSS_WEIGHT = 0
-
-STARTING_TEMP = 1.
-TEMP_MIN = 0.5
-ANNEAL_RATE = 1e-6
-
-NUM_IMAGES_SAVE = 4
-
+cfg.IMAGE_SIZE = args.image_size
+cfg.IMAGE_PATH = args.image_folder
 # data
 
 ds = ImageFolder(
-    IMAGE_PATH,
+    cfg.IMAGE_PATH,
     T.Compose([
-        T.Resize(IMAGE_SIZE),
-        T.CenterCrop(IMAGE_SIZE),
+        T.Resize(cfg.IMAGE_SIZE),
+        T.CenterCrop(cfg.IMAGE_SIZE),
         T.ToTensor(),
         T.Normalize((0.5,) * 3, (0.5,) * 3)
     ])
 )
 
-dl = DataLoader(ds, BATCH_SIZE, shuffle = True)
+dl = DataLoader(ds, cfg.BATCH_SIZE, shuffle = True)
 
 vae_params = dict(
-    image_size = IMAGE_SIZE,
-    num_layers = NUM_LAYERS,
-    num_tokens = NUM_TOKENS,
-    codebook_dim = EMB_DIM,
-    hidden_dim   = HID_DIM,
-    num_resnet_blocks = NUM_RESNET_BLOCKS
+    image_size = cfg.IMAGE_SIZE,
+    num_layers = cfg.NUM_LAYERS,
+    num_tokens = cfg.NUM_TOKENS,
+    codebook_dim = cfg.EMB_DIM,
+    hidden_dim   = cfg.HID_DIM,
+    num_resnet_blocks = cfg.NUM_RESNET_BLOCKS
 )
 
 vae = DiscreteVAE(
     **vae_params,
-    smooth_l1_loss = SMOOTH_L1_LOSS,
-    kl_div_loss_weight = KL_LOSS_WEIGHT
+    smooth_l1_loss = cfg.SMOOTH_L1_LOSS,
+    kl_div_loss_weight = cfg.KL_LOSS_WEIGHT
 ).cuda()
 
 
@@ -96,26 +77,26 @@ def save_model(path):
 
 # optimizer
 
-opt = Adam(vae.parameters(), lr = LEARNING_RATE)
-sched = ExponentialLR(optimizer = opt, gamma = LR_DECAY_RATE)
+opt = Adam(vae.parameters(), lr = cfg.LEARNING_RATE)
+sched = ExponentialLR(optimizer = opt, gamma = cfg.LR_DECAY_RATE)
 
 # weights & biases experiment tracking
 
 import wandb
 
-wandb.config.num_tokens = NUM_TOKENS
-wandb.config.smooth_l1_loss = SMOOTH_L1_LOSS
-wandb.config.num_resnet_blocks = NUM_RESNET_BLOCKS
-wandb.config.kl_loss_weight = KL_LOSS_WEIGHT
+wandb.config.num_tokens = cfg.NUM_TOKENS
+wandb.config.smooth_l1_loss = cfg.SMOOTH_L1_LOSS
+wandb.config.num_resnet_blocks = cfg.NUM_RESNET_BLOCKS
+wandb.config.kl_loss_weight = cfg.KL_LOSS_WEIGHT
 
 wandb.init(project='dalle_train_vae')
 
 # starting temperature
 
 global_step = 0
-temp = STARTING_TEMP
+temp = cfg.STARTING_TEMP
 
-for epoch in range(EPOCHS):
+for epoch in range(cfg.EPOCHS):
     for i, (images, _) in enumerate(dl):
         images = images.cuda()
 
@@ -133,7 +114,7 @@ for epoch in range(EPOCHS):
         logs = {}
 
         if i % 100 == 0:
-            k = NUM_IMAGES_SAVE
+            k = cfg.NUM_IMAGES_SAVE
 
             with torch.no_grad():
                 codes = vae.get_codebook_indices(images[:k])
@@ -157,7 +138,7 @@ for epoch in range(EPOCHS):
 
             # temperature anneal
 
-            temp = max(temp * math.exp(-ANNEAL_RATE * global_step), TEMP_MIN)
+            temp = max(temp * math.exp(-cfg.ANNEAL_RATE * global_step), cfg.TEMP_MIN)
 
             # lr decay
 
